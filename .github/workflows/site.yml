@@ -13,7 +13,6 @@
 # * Docs and more: https://upptime.js.org
 # * More by Anand Chowdhary: https://anandchowdhary.com
 
-
 name: Static Site CI
 
 on:
@@ -50,7 +49,7 @@ jobs:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
 
-      # 先跑 Upptime 內建命令（不依賴本地 lockfile）
+      # 先嘗試用 Upptime 內建命令產生站點（不依賴本地 lockfile）
       - name: Generate site (Upptime)
         uses: upptime/uptime-monitor@v1.40.1
         with:
@@ -58,7 +57,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
 
-      # 若沒有模板，先把官方模板拉下來
+      # 沒有模板就先拉一次；runner 自帶 node，可直接 npx
       - name: Scaffold status-page if missing
         run: |
           if [ ! -d "site/status-page" ]; then
@@ -67,15 +66,33 @@ jobs:
             echo "::endgroup::"
           fi
 
-      # ✅ 這裡再啟用 Node + npm cache，並指向正確的 lockfile 路徑
-      - name: Use Node 20 with npm cache
+      # 檢查 lockfile 是否存在，決定是否開啟 npm cache
+      - name: Detect lockfile
+        id: lock
+        run: |
+          if [ -f "site/status-page/package-lock.json" ]; then
+            echo "has_lockfile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_lockfile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 有 lockfile：用 cache
+      - name: Use Node 20 (with npm cache)
+        if: steps.lock.outputs.has_lockfile == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: "site/status-page/package-lock.json"
 
-      # 正式 build/export
+      # 沒 lockfile：先不要開 cache，避免報錯
+      - name: Use Node 20 (no cache)
+        if: steps.lock.outputs.has_lockfile != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # 正式 build/export（無論有沒有 lockfile，都走 npm ci）
       - name: Build & export status-page
         working-directory: site/status-page
         run: |
@@ -102,7 +119,7 @@ jobs:
           name: status-page-export
           path: site/status-page/__sapper__/export
 
-      # 發佈到 gh-pages
+      # 部署到 gh-pages
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
