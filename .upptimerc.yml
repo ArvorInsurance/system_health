@@ -3,21 +3,14 @@ owner: ArvorInsurance
 repo: system_health
 
 sites:
-  - name: Google
-    url: https://www.google.com
-  - name: Wikipedia
-    url: https://en.wikipedia.org
-  - name: Hacker News
-    url: https://news.ycombinator.com
-  - name: Company Research App
+  - name: Company Research Website
     url: https://company-research.apps.arvorinsurance.com/
-  - name: Test Broken Site
-    url: https://thissitedoesnotexist.koj.co
-  - name: IPv6 test
-    url: forwardemail.net
-    port: 80
-    check: "tcp-ping"
-    ipv6: true
+  - name: Company Research Health
+    url: https://company-research.apps.arvorinsurance.com/api/health
+  - name: Company Research Auth
+    url: https://company-research.apps.arvorinsurance.com/api/auth/verify
+  - name: Company Research Core API
+    url: https://company-research.apps.arvorinsurance.com/api/advice/research
 
 status-website:
   baseUrl: /system_health
