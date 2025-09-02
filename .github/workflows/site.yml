@@ -15,34 +15,172 @@
 
 
 name: Static Site CI
+
 on:
+  push:
+    branches: [ master ]
+    paths:
+      - ".github/workflows/site.yml"
+      - ".upptimerc.yml"
+      - "site/**"
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 1 * * *"              # 每天 01:00 UTC
   repository_dispatch:
     types: [static_site]
-  workflow_dispatch:
+  workflow_dispatch: {}
+
+concurrency:
+  group: static-site-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  release:
+  build-and-deploy:
     name: Build and deploy site
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    permissions:
+      contents: write
+      pages: write
+    env:
+      CI: "true"
+      NODE_OPTIONS: "--max_old_space_size=4096"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
-      - name: Generate site
+
+      # 嘗試讓 Upptime 自己生成（有時會直接放好 site/status-page）
+      - name: Generate site (Upptime)
         uses: upptime/uptime-monitor@v1.40.1
         with:
           command: "site"
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
-      - uses: peaceiris/actions-gh-pages@v4
-        name: GitHub Pages Deploy
+
+      # ── 強韌 Scaffold：degit → 失敗則 git clone + rsync ──
+      - name: Scaffold status-page (robust)
+        run: |
+          set -euxo pipefail
+          mkdir -p site
+          if [ ! -f "site/status-page/package.json" ]; then
+            npx -y degit upptime/status-page site/status-page || true
+          fi
+          if [ ! -f "site/status-page/package.json" ]; then
+            rm -rf .status-tpl
+            git clone --depth=1 https://github.com/upptime/status-page.git .status-tpl
+            rsync -a --delete --exclude ".git" .status-tpl/ site/status-page/
+          fi
+          ls -la site/status-page
+          test -f site/status-page/package.json
+
+      # ★ 把你的真實設定給模板（讓 pre-process 用到 baseUrl=/system_health）
+      - name: Copy real .upptimerc.yml into status-page
+        run: |
+          cp -f .upptimerc.yml site/status-page/.upptimerc.yml
+          echo "Using config:"
+          sed -n '1,200p' site/status-page/.upptimerc.yml
+
+      # 偵測 lockfile，決定安裝策略與是否開 cache
+      - name: Detect package manager files
+        id: pm
+        working-directory: site/status-page
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "lock=npm" >> "$GITHUB_OUTPUT"
+          elif [ -f yarn.lock ]; then
+            echo "lock=yarn" >> "$GITHUB_OUTPUT"
+          else
+            echo "lock=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Use Node 20 (npm cache)
+        if: steps.pm.outputs.lock == 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "site/status-page/package-lock.json"
+
+      - name: Use Node 20 (no cache)
+        if: steps.pm.outputs.lock != 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        working-directory: site/status-page
+        run: |
+          set -euxo pipefail
+          if [ "${{ steps.pm.outputs.lock }}" = "npm" ]; then
+            npm ci --no-audit --no-fund
+          elif [ "${{ steps.pm.outputs.lock }}" = "yarn" ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      # ★★ 關鍵：build → export（帶 basepath=/system_health）→ post-process
+      - name: Build & Export status-page (Sapper)
+        working-directory: site/status-page
+        env:
+          BASE_PATH: "/system_health"
+        run: |
+          set -euxo pipefail
+          npx ts-node pre-process.ts || true
+          npm run build
+          npx sapper export --legacy --basepath "$BASE_PATH"
+          npx ts-node post-process.ts || true
+
+      # ★ 保險修補：把殘留的絕對路徑 rewrite 成 /system_health/ 前綴
+      - name: Fix asset paths for baseUrl
+        run: |
+          set -euxo pipefail
+          EXPORT_DIR="site/status-page/__sapper__/export"
+          if [ -f "$EXPORT_DIR/service-worker-index.html" ]; then
+            sed -i 's|<base href=/ >|<base href="/system_health/" >|g' "$EXPORT_DIR/service-worker-index.html" || true
+          fi
+          find "$EXPORT_DIR" -name '*.html' -print0 | xargs -0 -I{} bash -c '
+            sed -i \
+              -e "s|href=/client/|href=/system_health/client/|g" \
+              -e "s|src=/client/|src=/system_health/client/|g" \
+              -e "s|\"/service-worker.js\"|\"/system_health/service-worker.js\"|g" \
+              -e "s|href=manifest.json|href=/system_health/manifest.json|g" \
+              "{}"
+          '
+
+      # 驗證輸出並提供發佈路徑
+      - name: Verify export artifacts
+        id: out
+        run: |
+          set -euxo pipefail
+          ls -la site/status-page || true
+          ls -la site/status-page/__sapper__/export || true
+          if [ -f site/status-page/__sapper__/export/index.html ]; then
+            echo "publish_dir=site/status-page/__sapper__/export" >> "$GITHUB_OUTPUT"
+          else
+            echo "No static output found."
+            exit 1
+          fi
+
+      # （可選）把產物存成 artifact 方便除錯
+      - name: Upload built site (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: status-page-export
+          path: ${{ steps.out.outputs.publish_dir }}
+
+      # 發佈到 gh-pages（Settings → Pages 請選 Deploy from a branch → gh-pages / root）
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GH_PAT || github.token }}
-          publish_dir: "site/status-page/__sapper__/export/"
-          force_orphan: "false"
+          publish_branch: gh-pages
+          publish_dir: ${{ steps.out.outputs.publish_dir }}
+          enable_jekyll: false
+          keep_files: false
+          force_orphan: false
           user_name: "Upptime Bot"
           user_email: "73812536+upptime-bot@users.noreply.github.com"
