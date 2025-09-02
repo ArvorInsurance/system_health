@@ -15,34 +15,100 @@
 
 
 name: Static Site CI
+
 on:
+  push:
+    branches: [ master ]             # 你的預設分支
+    paths:
+      - ".github/workflows/site.yml"
+      - ".upptimerc.yml"
+      - "site/**"
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 1 * * *"              # 每天 01:00 UTC 跑一次
   repository_dispatch:
     types: [static_site]
-  workflow_dispatch:
+  workflow_dispatch: {}
+
+concurrency:
+  group: static-site-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  release:
-    name: Build and deploy site
+  build-and-deploy:
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    permissions:
+      contents: write
+      pages: write
+    env:
+      CI: "true"
+      NODE_OPTIONS: "--max_old_space_size=4096"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
-      - name: Generate site
+
+      - name: Use Node 20 (stable for Sapper)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      # 嘗試用 Upptime 官方 action 產生 site
+      - name: Generate site (Upptime)
         uses: upptime/uptime-monitor@v1.40.1
         with:
           command: "site"
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
-      - uses: peaceiris/actions-gh-pages@v4
-        name: GitHub Pages Deploy
+
+      # 如果模板缺少，就先拉一次
+      - name: Scaffold status-page if missing
+        run: |
+          if [ ! -d "site/status-page" ]; then
+            echo "::group::Scaffold status-page"
+            npx -y degit upptime/status-page site/status-page
+            echo "::endgroup::"
+          fi
+
+      # 無論如何再執行一次 build/export，確保有產物
+      - name: Build & export status-page
+        working-directory: site/status-page
+        run: |
+          echo "::group::npm ci"
+          npm ci --no-audit --no-fund
+          echo "::endgroup::"
+          echo "::group::npm run export"
+          npm run export
+          echo "::endgroup::"
+
+      # 確認 __sapper__/export 真的存在，否則 fail
+      - name: Verify export artifacts
+        run: |
+          echo "Checking export directory..."
+          ls -la site/status-page || true
+          ls -la site/status-page/__sapper__ || true
+          ls -la site/status-page/__sapper__/export || true
+          test -f site/status-page/__sapper__/export/index.html
+
+      # 上傳產物方便你在 Actions 下載檢查
+      - name: Upload built site (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: status-page-export
+          path: site/status-page/__sapper__/export
+
+      # 部署到 gh-pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GH_PAT || github.token }}
-          publish_dir: "site/status-page/__sapper__/export/"
-          force_orphan: "false"
+          publish_branch: gh-pages
+          publish_dir: site/status-page/__sapper__/export/
+          enable_jekyll: false
+          keep_files: false
+          force_orphan: false
           user_name: "Upptime Bot"
           user_email: "73812536+upptime-bot@users.noreply.github.com"
