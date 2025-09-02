@@ -23,7 +23,7 @@ on:
       - ".upptimerc.yml"
       - "site/**"
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 1 * * *"         # 每天 01:00 UTC
   repository_dispatch:
     types: [static_site]
   workflow_dispatch: {}
@@ -34,7 +34,9 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    name: Build and deploy site
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     permissions:
       contents: write
       pages: write
@@ -49,7 +51,7 @@ jobs:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
 
-      # 先讓 Upptime 嘗試生成（有時它會自己放好 site/status-page）
+      # 嘗試讓 Upptime 自己生成（有時它會放好 site/status-page）
       - name: Generate site (Upptime)
         uses: upptime/uptime-monitor@v1.40.1
         with:
@@ -57,7 +59,7 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
 
-      # ── 可靠的 Scaffold：degit -> 失敗則 git clone + rsync ──
+      # ── 強韌 Scaffold：degit → 失敗則 git clone + rsync ──
       - name: Scaffold status-page (robust)
         run: |
           set -euxo pipefail
@@ -79,7 +81,7 @@ jobs:
           test -f site/status-page/package.json
           echo "::endgroup::"
 
-      # 偵測 lockfile 類型，決定是否開 cache 以及用什麼安裝指令
+      # 偵測 lockfile，決定 cache 與安裝策略
       - name: Detect package manager files
         id: pm
         working-directory: site/status-page
@@ -92,7 +94,7 @@ jobs:
             echo "lock=none" >> "$GITHUB_OUTPUT"
           fi
 
-      # 有 npm lockfile → 用 npm cache；否則就單純裝 Node 20
+      # 有 npm lockfile → 啟用 npm cache；否則就單純設定 Node 20
       - name: Use Node 20 (npm cache)
         if: steps.pm.outputs.lock == 'npm'
         uses: actions/setup-node@v4
@@ -107,7 +109,7 @@ jobs:
         with:
           node-version: "20"
 
-      # 安裝依賴：有 lock 用 ci / yarn，否則 npm install
+      # 安裝依賴：npm ci / yarn / npm install 擇一
       - name: Install deps
         working-directory: site/status-page
         run: |
@@ -121,30 +123,28 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      # 匯出：有 export script 就用，否則用 build
-      - name: Export status-page (Sapper/Astro)
+      # 匯出：若有 export script 用之；否則手動 build → sapper export → post-process
+      - name: Export status-page (Sapper)
         working-directory: site/status-page
         run: |
           set -euxo pipefail
           if npm run | grep -qE '(^| )export( |:)'; then
             npm run export
-          elif npm run | grep -qE '(^| )build( |:)'; then
-            npm run build
           else
-            echo "No export/build script found in package.json"
-            cat package.json
-            exit 1
+            npm run build               # 這會做 sapper build --legacy
+            npx sapper export --legacy  # 這一步才會產生 __sapper__/export 靜態輸出
+            npx ts-node post-process.ts || true  # 修正 baseUrl 等
           fi
 
-      # 產物健檢：Sapper（__sapper__/export）或 Astro（dist）
+      # 驗證輸出，並輸出 publish_dir 供後續部署使用
       - name: Verify export artifacts
+        id: out
         run: |
           set -euxo pipefail
           echo "Listing possible output dirs..."
           ls -la site/status-page || true
           ls -la site/status-page/__sapper__/export || true
           ls -la site/status-page/dist || true
-          # 決定實際 publish 目錄並輸出變數
           if [ -f site/status-page/__sapper__/export/index.html ]; then
             echo "publish_dir=site/status-page/__sapper__/export" >> "$GITHUB_OUTPUT"
           elif [ -f site/status-page/dist/index.html ]; then
@@ -153,16 +153,15 @@ jobs:
             echo "No static output found (neither __sapper__/export nor dist)."
             exit 1
           fi
-        id: out
 
-      # 上傳產物以便除錯
+      # 上傳產物（除錯用，可保留）
       - name: Upload built site (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: status-page-export
           path: ${{ steps.out.outputs.publish_dir }}
 
-      # 部署到 gh-pages（用上面偵測到的 publish_dir）
+      # 發佈到 gh-pages（使用上一步偵測到的 publish_dir）
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
