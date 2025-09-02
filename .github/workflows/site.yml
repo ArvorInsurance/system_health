@@ -32,12 +32,35 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
       - name: Generate site
         uses: upptime/uptime-monitor@v1.40.1
         with:
           command: "site"
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
+      - name: Fallback build status-page
+        run: |
+          set -e
+          if [ ! -d "site/status-page" ]; then
+            echo "::group::Scaffold status-page"
+            npx -y degit upptime/status-page site/status-page
+            echo "::endgroup::"
+          fi
+          pushd site/status-page
+          echo "::group::Install deps"
+          npm ci --no-audit --no-fund
+          echo "::endgroup::"
+          echo "::group::Build (Sapper export)"
+          npm run export
+          echo "::endgroup::"
+          popd
+      - name: Verify export artifacts
+        run: |
+          ls -la site/status-page/__sapper__/export || (echo "Export not found" && exit 1)
       - uses: peaceiris/actions-gh-pages@v4
         name: GitHub Pages Deploy
         with:
