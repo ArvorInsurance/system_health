@@ -49,7 +49,7 @@ jobs:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
 
-      # 先嘗試用 Upptime 內建命令（不依賴本地 lockfile）
+      # 先讓 Upptime 嘗試生成（有時它會自己放好 site/status-page）
       - name: Generate site (Upptime)
         uses: upptime/uptime-monitor@v1.40.1
         with:
@@ -57,16 +57,29 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
 
-      # 若沒有模板，先把官方模板拉下來
-      - name: Scaffold status-page if missing
+      # ── 可靠的 Scaffold：degit -> 失敗則 git clone + rsync ──
+      - name: Scaffold status-page (robust)
         run: |
-          if [ ! -d "site/status-page" ]; then
-            echo "::group::Scaffold status-page"
-            npx -y degit upptime/status-page site/status-page
+          set -euxo pipefail
+          mkdir -p site
+          if [ ! -f "site/status-page/package.json" ]; then
+            echo "::group::Try degit"
+            npx -y degit upptime/status-page site/status-page || true
             echo "::endgroup::"
           fi
+          if [ ! -f "site/status-page/package.json" ]; then
+            echo "::group::Fallback to git clone"
+            rm -rf .status-tpl
+            git clone --depth=1 https://github.com/upptime/status-page.git .status-tpl
+            rsync -a --delete --exclude ".git" .status-tpl/ site/status-page/
+            echo "::endgroup::"
+          fi
+          echo "::group::Show scaffolded files"
+          ls -la site/status-page || true
+          test -f site/status-page/package.json
+          echo "::endgroup::"
 
-      # 檢查 lockfile 狀況，決定 cache 與安裝策略
+      # 偵測 lockfile 類型，決定是否開 cache 以及用什麼安裝指令
       - name: Detect package manager files
         id: pm
         working-directory: site/status-page
@@ -79,7 +92,7 @@ jobs:
             echo "lock=none" >> "$GITHUB_OUTPUT"
           fi
 
-      # 有 npm lockfile → 開啟 npm cache
+      # 有 npm lockfile → 用 npm cache；否則就單純裝 Node 20
       - name: Use Node 20 (npm cache)
         if: steps.pm.outputs.lock == 'npm'
         uses: actions/setup-node@v4
@@ -88,18 +101,18 @@ jobs:
           cache: "npm"
           cache-dependency-path: "site/status-page/package-lock.json"
 
-      # 有 yarn.lock → 不用 cache（簡化；要也行）
       - name: Use Node 20 (no cache)
         if: steps.pm.outputs.lock != 'npm'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # 依照偵測結果安裝依賴：npm ci / yarn install / npm install
+      # 安裝依賴：有 lock 用 ci / yarn，否則 npm install
       - name: Install deps
         working-directory: site/status-page
         run: |
-          echo "Lockfile type: ${{ steps.pm.outputs.lock }}"
+          set -euxo pipefail
+          echo "Lockfile: ${{ steps.pm.outputs.lock }}"
           if [ "${{ steps.pm.outputs.lock }}" = "npm" ]; then
             npm ci --no-audit --no-fund
           elif [ "${{ steps.pm.outputs.lock }}" = "yarn" ]; then
@@ -108,34 +121,54 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      # 匯出 Sapper 靜態檔
-      - name: Export status-page (Sapper)
+      # 匯出：有 export script 就用，否則用 build
+      - name: Export status-page (Sapper/Astro)
         working-directory: site/status-page
-        run: npm run export
+        run: |
+          set -euxo pipefail
+          if npm run | grep -qE '(^| )export( |:)'; then
+            npm run export
+          elif npm run | grep -qE '(^| )build( |:)'; then
+            npm run build
+          else
+            echo "No export/build script found in package.json"
+            cat package.json
+            exit 1
+          fi
 
-      # 產物健檢：沒有就 fail，避免空部署
+      # 產物健檢：Sapper（__sapper__/export）或 Astro（dist）
       - name: Verify export artifacts
         run: |
-          echo "Checking export directory..."
+          set -euxo pipefail
+          echo "Listing possible output dirs..."
           ls -la site/status-page || true
-          ls -la site/status-page/__sapper__ || true
           ls -la site/status-page/__sapper__/export || true
-          test -f site/status-page/__sapper__/export/index.html
+          ls -la site/status-page/dist || true
+          # 決定實際 publish 目錄並輸出變數
+          if [ -f site/status-page/__sapper__/export/index.html ]; then
+            echo "publish_dir=site/status-page/__sapper__/export" >> "$GITHUB_OUTPUT"
+          elif [ -f site/status-page/dist/index.html ]; then
+            echo "publish_dir=site/status-page/dist" >> "$GITHUB_OUTPUT"
+          else
+            echo "No static output found (neither __sapper__/export nor dist)."
+            exit 1
+          fi
+        id: out
 
-      # 方便除錯：把產物上傳成 artifact
+      # 上傳產物以便除錯
       - name: Upload built site (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: status-page-export
-          path: site/status-page/__sapper__/export
+          path: ${{ steps.out.outputs.publish_dir }}
 
-      # 發佈到 gh-pages
+      # 部署到 gh-pages（用上面偵測到的 publish_dir）
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GH_PAT || github.token }}
           publish_branch: gh-pages
-          publish_dir: site/status-page/__sapper__/export/
+          publish_dir: ${{ steps.out.outputs.publish_dir }}
           enable_jekyll: false
           keep_files: false
           force_orphan: false
