@@ -12,10 +12,6 @@ labels: []
 repository: ArvorInsurance/system_health
 timezone: America/New_York
 
-# Force commits every 5 minutes even when status doesn't change
-forceCommit: true
-commitInterval: 300
-
 sites:
   - name: Company Research Website
     url: https://company-research.apps.arvorinsurance.com/

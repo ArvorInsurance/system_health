@@ -1,0 +1,121 @@
+name: Status Logger - Every 5 Minutes
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # 每5分鐘運行一次
+  workflow_dispatch:
+
+jobs:
+  log-status:
+    name: Log Status Every 5 Minutes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+      
+      - name: Check endpoints and log status
+        run: |
+          echo "🔄 Checking all endpoints and logging status..."
+          
+          # Get current timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          echo "📊 Status check started at: $TIMESTAMP"
+          
+          # Create status log file
+          cat > status-log.md << EOF
+          # Status Check Log
+          
+          **Timestamp:** $TIMESTAMP
+          **Workflow:** Status Logger
+          
+          ## Endpoint Status
+          
+          EOF
+          
+          # Check Company Research Website
+          echo "🌐 Checking Company Research Website..."
+          WEBSITE_STATUS=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "https://company-research.apps.arvorinsurance.com/")
+          WEBSITE_CODE=$(echo $WEBSITE_STATUS | cut -d' ' -f1)
+          WEBSITE_TIME=$(echo $WEBSITE_STATUS | cut -d' ' -f2)
+          
+          if [ "$WEBSITE_CODE" = "200" ]; then
+            echo "✅ Company Research Website: UP (200 in ${WEBSITE_TIME}s)"
+            echo "- **Company Research Website:** ✅ UP (200 in ${WEBSITE_TIME}s)" >> status-log.md
+          else
+            echo "❌ Company Research Website: DOWN ($WEBSITE_CODE)"
+            echo "- **Company Research Website:** ❌ DOWN ($WEBSITE_CODE)" >> status-log.md
+          fi
+          
+          # Check Company Research Health
+          echo "🏥 Checking Company Research Health..."
+          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "https://company-research.apps.arvorinsurance.com/api/health")
+          HEALTH_CODE=$(echo $HEALTH_STATUS | cut -d' ' -f1)
+          HEALTH_TIME=$(echo $HEALTH_STATUS | cut -d' ' -f2)
+          
+          if [ "$HEALTH_CODE" = "200" ]; then
+            echo "✅ Company Research Health: UP (200 in ${HEALTH_TIME}s)"
+            echo "- **Company Research Health:** ✅ UP (200 in ${HEALTH_TIME}s)" >> status-log.md
+          else
+            echo "❌ Company Research Health: DOWN ($HEALTH_CODE)"
+            echo "- **Company Research Health:** ❌ DOWN ($HEALTH_CODE)" >> status-log.md
+          fi
+          
+          # Check Company Research Auth
+          echo "🔐 Checking Company Research Auth..."
+          AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "https://company-research.apps.arvorinsurance.com/api/auth/verify")
+          AUTH_CODE=$(echo $AUTH_STATUS | cut -d' ' -f1)
+          AUTH_TIME=$(echo $AUTH_STATUS | cut -d' ' -f2)
+          
+          if [ "$AUTH_CODE" = "200" ]; then
+            echo "✅ Company Research Auth: UP (200 in ${AUTH_TIME}s)"
+            echo "- **Company Research Auth:** ✅ UP (200 in ${AUTH_TIME}s)" >> status-log.md
+          else
+            echo "❌ Company Research Auth: DOWN ($AUTH_CODE)"
+            echo "- **Company Research Auth:** ❌ DOWN ($AUTH_CODE)" >> status-log.md
+          fi
+          
+          # Check Company Research Core API
+          echo "🔌 Checking Company Research Core API..."
+          API_STATUS=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" "https://company-research.apps.arvorinsurance.com/api/advice/research")
+          API_CODE=$(echo $API_STATUS | cut -d' ' -f1)
+          API_TIME=$(echo $API_STATUS | cut -d' ' -f2)
+          
+          if [ "$API_CODE" = "200" ]; then
+            echo "✅ Company Research Core API: UP (200 in ${API_TIME}s)"
+            echo "- **Company Research Core API:** ✅ UP (200 in ${API_TIME}s)" >> status-log.md
+          else
+            echo "❌ Company Research Core API: DOWN ($API_CODE)"
+            echo "- **Company Research Core API:** ❌ DOWN ($API_CODE)" >> status-log.md
+          fi
+          
+          # Add summary
+          echo "" >> status-log.md
+          echo "---" >> status-log.md
+          echo "**Status Check Completed Successfully**" >> status-log.md
+          
+          echo "📝 Status logged to status-log.md"
+      
+      - name: Commit and push status log
+        run: |
+          echo "📤 Committing and pushing status log..."
+          
+          # Configure git
+          git config --local user.email "upptime-bot@users.noreply.github.com"
+          git config --local user.name "Upptime Bot"
+          
+          # Add and commit the status log
+          git add status-log.md
+          git commit -m "📊 Status check completed at $(date -u +"%Y-%m-%d %H:%M:%S UTC") [skip ci] [upptime]"
+          
+          # Push to repository
+          git push origin HEAD:master
+          
+          echo "✅ Status log committed and pushed successfully"
+        env:
+          GH_PAT: ${{ secrets.GH_PAT || github.token }}
