@@ -21,12 +21,10 @@ skipCommit: false
 sites:
   - name: Company Research Website
     url: https://company-research.apps.arvorinsurance.com/
-  - name: Company Research Health
-    url: https://company-research.apps.arvorinsurance.com/api/health
-  - name: Company Research Auth
-    url: https://company-research.apps.arvorinsurance.com/api/auth/verify
-  - name: Company Research Core API
-    url: https://company-research.apps.arvorinsurance.com/api/advice/research
+  - name: Advice App
+    url: https://advice-pane.apps.arvorinsurance.com/
+  - name: Submissions Health
+    url: https://submissions.apps.arvorinsurance.com/api/health
 
 status-website:
   baseUrl: /system_health
@@ -36,7 +34,7 @@ status-website:
   introMessage: "This status page shows real-time uptime data for our services."
   navbar:
     - title: Status
-      href: /system_health/     # ← 改成帶 baseUrl 的路徑
+      href: /system_health/
     - title: GitHub
       href: https://github.com/$OWNER/$REPO
 
