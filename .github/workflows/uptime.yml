@@ -25,17 +25,12 @@ jobs:
   release:
     name: Check status
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           token: ${{ secrets.GH_PAT || github.token }}
-      
       - name: Check endpoint status
         uses: upptime/uptime-monitor@v1.40.1
         with:
@@ -43,29 +38,3 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
-      
-      - name: Force commit every check
-        run: |
-          echo "🔍 Force creating commit for every status check..."
-          
-          # Configure git
-          git config --local user.email "upptime-bot@users.noreply.github.com"
-          git config --local user.name "Upptime Bot"
-          
-          # Get current timestamp
-          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
-          # Create a status check record
-          echo "Status check completed at: $TIMESTAMP" > .status-check
-          echo "All endpoints checked successfully" >> .status-check
-          echo "Upptime version: v1.40.1" >> .status-check
-          
-          # Add and commit the status check file
-          git add .status-check
-          git commit -m "📊 Status check completed at $TIMESTAMP - all services operational [skip ci] [upptime]"
-          
-          # Push the commit
-          git push origin HEAD:master
-          echo "✅ Force commit created and pushed at $TIMESTAMP"
-        env:
-          GH_PAT: ${{ secrets.GH_PAT || github.token }}
