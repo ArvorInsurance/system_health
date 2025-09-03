@@ -2,6 +2,16 @@
 owner: ArvorInsurance
 repo: system_health
 
+# Add necessary permissions and settings
+assignees: []
+autoAssign: false
+autoClose: false
+branches: [master]
+commitMessagePrefix: ""
+labels: []
+repository: ArvorInsurance/system_health
+timezone: America/New_York
+
 sites:
   - name: Company Research Website
     url: https://company-research.apps.arvorinsurance.com/
