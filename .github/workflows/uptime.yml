@@ -53,13 +53,14 @@ jobs:
           git config --local user.name "Upptime Bot"
           
           # Get current timestamp
-          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          TIMESTAMP=$(date -u +"%Y-%m-%d-%H-%M-%S")
+          echo "📅 Timestamp: $TIMESTAMP"
           
-          # Create a status check record with timestamp
-          cat > .status-check-$TIMESTAMP << EOF
+          # Create a status check record
+          cat > status-check-${TIMESTAMP}.md << 'EOF'
           # Status Check Record
           
-          **Timestamp:** $TIMESTAMP
+          **Timestamp:** TIMESTAMP_PLACEHOLDER
           **Workflow:** Uptime CI
           **Action:** Force commit after Upptime check
           
@@ -75,8 +76,11 @@ jobs:
           
           EOF
           
+          # Replace placeholder with actual timestamp
+          sed -i "s/TIMESTAMP_PLACEHOLDER/$TIMESTAMP/g" status-check-${TIMESTAMP}.md
+          
           # Add and commit the status check file
-          git add .status-check-$TIMESTAMP
+          git add status-check-${TIMESTAMP}.md
           git commit -m "📊 Uptime status check completed at $TIMESTAMP - force commit [skip ci] [upptime]"
           
           # Push the commit
@@ -84,6 +88,6 @@ jobs:
           echo "✅ Force commit created and pushed at $TIMESTAMP"
           
           # Clean up old status check files (keep only last 10)
-          ls -t .status-check-* | tail -n +11 | xargs -r rm -f
+          ls -t status-check-*.md | tail -n +11 | xargs -r rm -f
         env:
           GH_PAT: ${{ secrets.GH_PAT || github.token }}
