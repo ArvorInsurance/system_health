@@ -12,7 +12,7 @@
     "uptimeYear": "100.00%",
     "time": 121,
     "timeDay": 316,
-    "timeWeek": 122,
+    "timeWeek": 121,
     "timeMonth": 121,
     "timeYear": 121,
     "dailyMinutesDown": {}
@@ -40,19 +40,19 @@
     "url": "https://submissions.apps.arvorinsurance.com/api/health",
     "icon": "https://icons.duckduckgo.com/ip3/submissions.apps.arvorinsurance.com.ico",
     "slug": "submissions-health",
-    "status": "down",
-    "uptime": "100.00%",
-    "uptimeDay": "100.00%",
-    "uptimeWeek": "100.00%",
-    "uptimeMonth": "100.00%",
-    "uptimeYear": "100.00%",
-    "time": 188,
-    "timeDay": 177,
-    "timeWeek": 188,
-    "timeMonth": 188,
-    "timeYear": 188,
+    "status": "up",
+    "uptime": "99.66%",
+    "uptimeDay": "97.75%",
+    "uptimeWeek": "99.66%",
+    "uptimeMonth": "99.66%",
+    "uptimeYear": "99.66%",
+    "time": 189,
+    "timeDay": 191,
+    "timeWeek": 189,
+    "timeMonth": 189,
+    "timeYear": 189,
     "dailyMinutesDown": {
-      "2025-09-10": 0
+      "2025-09-10": 32
     }
   }
 ]
