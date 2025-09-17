@@ -1,7 +1,7 @@
 url: https://submissions.apps.arvorinsurance.com/api/health
-status: down
-code: 503
-responseTime: 231
-lastUpdated: 2025-09-17T01:36:34.830Z
+status: up
+code: 200
+responseTime: 196
+lastUpdated: 2025-09-17T02:10:21.146Z
 startTime: 2025-09-03T19:22:18.082Z
 generator: Upptime <https://github.com/upptime/upptime>
